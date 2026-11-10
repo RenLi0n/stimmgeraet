@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#3a3e44">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Stimmgerät</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<style>
+/* Ein Bildschirm: Kammerton oben, Nadel + Ton in der Mitte, Metronom unten.
+   Die Hintergrundfarbe IST die Anzeige: grau = kein Ton, grün = sauber, rot = daneben. */
+:root{
+  --idle:#3a3e44; --good:#1c7a4b; --bad:#a3352f;
+  --ink:#ffffff; --ink-dim:rgba(255,255,255,.7); --line:rgba(255,255,255,.4);
+  --panel:rgba(0,0,0,.2); --btn:rgba(255,255,255,.14); --btn-hover:rgba(255,255,255,.24);
+  --f-display:"Avenir Next","Segoe UI Variable Display","Helvetica Neue",system-ui,sans-serif;
+  --f-body:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{
+  --bg:var(--idle);
+  background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;
+  transition:background-color .2s ease;
+  padding-left:max(16px,env(safe-area-inset-left,0px));
+  padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-block:env(safe-area-inset-top,0px) env(safe-area-inset-bottom,0px);
+  -webkit-tap-highlight-color:transparent;
+}
+body.good{--bg:var(--good)}
+body.bad{--bg:var(--bad)}
+@media (prefers-reduced-motion:reduce){body{transition:none}}
+.app{max-width:520px;min-height:100%;margin:0 auto;display:flex;flex-direction:column;gap:14px;padding-block:14px}
+
+button,select{font:inherit;color:var(--ink);background:var(--btn);border:0;border-radius:10px;padding:10px 14px;cursor:pointer;touch-action:manipulation}
+button:hover,select:hover{background:var(--btn-hover)}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+button.sq{width:44px;height:44px;padding:0;font-size:22px;line-height:1}
+button.primary{background:var(--ink);color:#222;font-weight:600}
+button.primary:hover{background:rgba(255,255,255,.85)}
+.lbl{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-dim)}
+
+/* Kopf */
+.bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px}
+.ref{display:flex;flex-direction:column;gap:4px}
+.row{display:flex;align-items:center;gap:8px}
+#refVal{font-variant-numeric:tabular-nums;font-weight:600;min-width:7.5em;text-align:center}
+
+/* Stimmgerät */
+.tuner{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:0}
+#gauge{width:100%;max-width:440px;height:auto;display:block}
+#gauge .tick{stroke:var(--ink);stroke-linecap:round}
+#gauge text{fill:var(--ink-dim);font-family:var(--f-body);font-size:11px;text-anchor:middle}
+#gauge .tolzone{fill:rgba(255,255,255,.22)}
+#gauge .needle line{stroke:var(--ink);stroke-width:3.5;stroke-linecap:round}
+#gauge .needle circle{fill:var(--ink)}
+.note{font-family:var(--f-display);font-weight:700;font-size:clamp(72px,24vw,132px);line-height:.95;letter-spacing:-.02em;display:flex;align-items:flex-start;gap:2px;margin-top:-6px}
+.note sub{font-size:.3em;font-weight:500;color:var(--ink-dim);align-self:flex-end;margin-bottom:.35em}
+.cents{font-size:clamp(22px,6vw,30px);font-weight:600;font-variant-numeric:tabular-nums}
+.freq{color:var(--ink-dim);font-variant-numeric:tabular-nums;min-height:1.4em;text-align:center}
+.tol{display:flex;align-items:center;gap:8px;margin-top:6px}
+.tol select{padding:6px 10px}
+.tol option{color:#222}
+
+.banner{width:100%;background:var(--panel);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.banner p{margin:0}
+.progress{height:6px;border-radius:3px;background:rgba(255,255,255,.18);overflow:hidden}
+.progress i{display:block;height:100%;width:0;background:var(--ink);transition:width .1s}
+.err{color:#ffd9d6}
+
+/* Metronom */
+.metro{background:var(--panel);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:12px}
+.metro .head{display:flex;justify-content:space-between;align-items:center}
+.bpm{display:flex;flex-direction:column;align-items:center;min-width:4.5em}
+#bpmVal{font-family:var(--f-display);font-weight:700;font-size:34px;font-variant-numeric:tabular-nums;line-height:1}
+.bpmrow{display:flex;align-items:center;justify-content:center;gap:14px}
+input[type=range]{width:100%;accent-color:var(--ink)}
+.controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.controls .primary{min-width:7em}
+.beat{width:18px;height:18px;border-radius:50%;border:2px solid var(--ink);margin-left:auto;flex:none}
+.beat.on{background:var(--ink)}
+.vol{display:flex;align-items:center;gap:10px}
+.vol input{flex:1}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header class="bar">
+    <div class="ref">
+      <span class="lbl">Kammerton</span>
+      <div class="row">
+        <button class="sq" id="refDown" aria-label="Kammerton tiefer">−</button>
+        <output id="refVal">A = 440,0 Hz</output>
+        <button class="sq" id="refUp" aria-label="Kammerton höher">+</button>
+      </div>
+    </div>
+    <div class="row">
+      <button id="refReset" title="Auf 440 Hz zurücksetzen">440</button>
+      <button id="calBtn">Stimmung vom Ton</button>
+    </div>
+  </header>
+
+  <div class="banner" id="calBox" hidden>
+    <p id="calText">Spiel jetzt einen Referenzton (z. B. das A auf dem Klavier) und halte ihn.</p>
+    <div class="progress" id="calProg"><i></i></div>
+    <div class="row"><button id="calCancel">Abbrechen</button></div>
+  </div>
+
+  <main class="tuner">
+    <svg id="gauge" viewBox="0 0 300 180" role="img" aria-label="Stimmnadel">
+      <g id="ticks"></g>
+      <path id="tolZone" class="tolzone"></path>
+      <text x="34" y="176">zu tief</text>
+      <text x="266" y="176">zu hoch</text>
+      <g class="needle" id="needle">
+        <line x1="150" y1="160" x2="150" y2="36"></line>
+        <circle cx="150" cy="160" r="7"></circle>
+      </g>
+    </svg>
+    <div class="note" aria-live="polite"><span id="noteName">–</span><sub id="noteOct"></sub></div>
+    <div class="cents" id="cents">&nbsp;</div>
+    <div class="freq" id="freq">Mikrofon ist aus</div>
+    <button class="primary" id="micBtn">Mikrofon starten</button>
+    <p class="err" id="err" hidden></p>
+    <div class="tol">
+      <label class="lbl" for="tol">Toleranz</label>
+      <select id="tol">
+        <option value="2">± 2 Cent</option>
+        <option value="3">± 3 Cent</option>
+        <option value="5">± 5 Cent</option>
+        <option value="10">± 10 Cent</option>
+        <option value="15">± 15 Cent</option>
+      </select>
+    </div>
+  </main>
+
+  <section class="metro" aria-label="Metronom">
+    <div class="head">
+      <span class="lbl">Metronom</span>
+      <span class="beat" id="beat" aria-hidden="true"></span>
+    </div>
+    <div class="bpmrow">
+      <button class="sq" id="bpmDown" aria-label="Langsamer">−</button>
+      <div class="bpm"><output id="bpmVal">100</output><span class="lbl">BPM</span></div>
+      <button class="sq" id="bpmUp" aria-label="Schneller">+</button>
+    </div>
+    <input type="range" id="bpm" min="30" max="240" step="1" value="100" aria-label="Tempo">
+    <div class="controls">
+      <button class="primary" id="metroBtn">Start</button>
+      <button id="tapBtn">Tippen</button>
+    </div>
+    <div class="vol">
+      <label class="lbl" for="vol">Lautstärke</label>
+      <input type="range" id="vol" min="0" max="1" step="0.01" value="0.7">
+    </div>
+  </section>
+
+</div>
+
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const NOTE_NAMES = ['C','C♯','D','E♭','E','F','F♯','G','G♯','A','B','H']; // deutsche Schreibweise: B = B♭, H = B
+const fmt = (v, d = 1) => v.toFixed(d).replace('.', ',');
+
+// ---------- Einstellungen ----------
+const S = { a4: 440, tol: 5, bpm: 100, vol: 0.7 };
+try { Object.assign(S, JSON.parse(localStorage.getItem('stimmgeraet') || '{}')); } catch (e) {}
+const save = () => { try { localStorage.setItem('stimmgeraet', JSON.stringify(S)); } catch (e) {} };
+
+// ---------- Audio ----------
+let ctx = null;
+function ensureCtx() {
+  if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+  if (ctx.state === 'suspended') ctx.resume();
+  return ctx;
+}
+
+// ---------- Anzeige: Skala ----------
+const PIV = { x: 150, y: 160 }, R = 124, DEG = 1.15; // Grad pro Cent
+function polar(c, r) { const a = c * DEG * Math.PI / 180; return [PIV.x + r * Math.sin(a), PIV.y - r * Math.cos(a)]; }
+(function buildTicks() {
+  let s = '';
+  for (let c = -50; c <= 50; c += 5) {
+    const major = c % 25 === 0, mid = c % 10 === 0;
+    const len = major ? 16 : mid ? 10 : 6;
+    const [x1, y1] = polar(c, R), [x2, y2] = polar(c, R - len);
+    s += `<line class="tick" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke-width="${major ? 2.5 : 1.5}" opacity="${major ? 1 : .7}"/>`;
+    if (major) { const [tx, ty] = polar(c, R + 12); s += `<text x="${tx}" y="${ty + 4}">${c > 0 ? '+' + c : c}</text>`; }
+  }
+  $('ticks').innerHTML = s;
+})();
+function drawTolZone() {
+  const t = S.tol, r1 = R - 20, r2 = R;
+  const [x1, y1] = polar(-t, r2), [x2, y2] = polar(t, r2), [x3, y3] = polar(t, r1), [x4, y4] = polar(-t, r1);
+  $('tolZone').setAttribute('d', `M${x1} ${y1}A${r2} ${r2} 0 0 1 ${x2} ${y2}L${x3} ${y3}A${r1} ${r1} 0 0 0 ${x4} ${y4}Z`);
+}
+
+// Nadel gleitet weich zum Ziel; ohne Ton bleibt das Ziel stehen (letztes Ergebnis).
+let needleTarget = 0, needleNow = 0;
+function animate() {
+  needleNow += (needleTarget - needleNow) * 0.22;
+  const c = Math.max(-50, Math.min(50, needleNow));
+  $('needle').setAttribute('transform', `rotate(${c * DEG} ${PIV.x} ${PIV.y})`);
+  beatVisual();
+  requestAnimationFrame(animate);
+}
+
+function setState(st) {
+  document.body.classList.toggle('good', st === 'good');
+  document.body.classList.toggle('bad', st === 'bad');
+}
+
+function showPitch(f) {
+  const m = 69 + 12 * Math.log2(f / S.a4);
+  const midi = Math.round(m);
+  const cents = (m - midi) * 100;
+  needleTarget = cents;
+  $('noteName').textContent = NOTE_NAMES[((midi % 12) + 12) % 12];
+  $('noteOct').textContent = Math.floor(midi / 12) - 1;
+  const rc = Math.round(cents);
+  $('cents').textContent = rc === 0 ? '± 0 Cent' : (rc > 0 ? '+' : '−') + Math.abs(rc) + ' Cent';
+  const target = S.a4 * Math.pow(2, (midi - 69) / 12);
+  $('freq').textContent = `${fmt(f)} Hz · Ziel ${fmt(target)} Hz`;
+  setState(Math.abs(cents) <= S.tol ? 'good' : 'bad');
+}
+
+// ---------- Tonhöhenerkennung (YIN) ----------
+const GATE = 0.006, THR = 0.15, FMIN = 38, FMAX = 1700;
+let yinD = null, yinRaw = null;
+function detectPitch(x, sr) {
+  const N = x.length;
+  let rms = 0;
+  for (let i = 0; i < N; i++) rms += x[i] * x[i];
+  rms = Math.sqrt(rms / N);
+  if (rms < GATE) return null;
+  const tauMax = Math.min(Math.floor(sr / FMIN), N >> 1), tauMin = Math.floor(sr / FMAX), W = N - tauMax;
+  if (!yinD || yinD.length < tauMax + 2) { yinD = new Float32Array(tauMax + 2); yinRaw = new Float32Array(tauMax + 2); }
+  const d = yinD, raw = yinRaw; d[0] = 1;
+  let run = 0, best = -1;
+  for (let tau = 1; tau <= tauMax; tau++) {
+    let s = 0;
+    for (let i = 0; i < W; i++) { const v = x[i] - x[i + tau]; s += v * v; }
+    raw[tau] = s;
+    run += s;
+    d[tau] = run ? s * tau / run : 1;
+    // erstes Minimum unter der Schwelle -> fertig (spart Rechenzeit bei hohen Tönen)
+    if (tau > tauMin + 1 && d[tau - 1] < THR && d[tau] >= d[tau - 1]) { best = tau - 1; break; }
+  }
+  if (best < 0) return null;
+  let bt = best;
+  // Feinposition per Parabel auf der rohen Differenzfunktion (genauer als auf der normierten)
+  const a = raw[best - 1], b = raw[best], c = raw[best + 1], den = a - 2 * b + c;
+  if (best > 1 && den > 0) bt = best + 0.5 * (a - c) / den;
+  return { f: sr / bt, clarity: 1 - d[best], rms };
+}
+
+// ---------- Mikrofon / Schleife ----------
+let analyser = null, buf = null, loop = null, micOn = false, wakeLock = null;
+let smoothLog = null, voicedRun = 0, silentRun = 0;
+
+function attachSource(node) {
+  analyser = ctx.createAnalyser();
+  analyser.fftSize = 4096;
+  buf = new Float32Array(analyser.fftSize);
+  node.connect(analyser);
+  clearInterval(loop);
+  loop = setInterval(tick, 45);
+  micOn = true;
+  $('micBtn').hidden = true;
+  $('err').hidden = true;
+  $('freq').textContent = 'Spiel einen Ton';
+}
+
+async function startMic() {
+  ensureCtx();
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showErr('Dieser Browser gibt kein Mikrofon frei. Die Seite muss über https:// geöffnet werden.');
+    return false;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+    });
+    attachSource(ctx.createMediaStreamSource(stream));
+    requestWake();
+    return true;
+  } catch (e) {
+    showErr('Kein Zugriff aufs Mikrofon. Erlaube es in den Browser-Einstellungen und tippe erneut auf „Mikrofon starten“.');
+    return false;
+  }
+}
+function showErr(t) { $('err').textContent = t; $('err').hidden = false; }
+
+async function requestWake() {
+  try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') { if (micOn) requestWake(); if (ctx) ctx.resume(); }
+});
+
+function tick() {
+  if (!analyser) return;
+  if (inClickWindow()) return; // Metronom-Klick nicht als Ton werten
+  analyser.getFloatTimeDomainData(buf);
+  const r = detectPitch(buf, ctx.sampleRate);
+  if (r && r.f >= FMIN && r.f <= FMAX) {
+    silentRun = 0;
+    const lf = Math.log2(r.f);
+    if (smoothLog !== null && Math.abs(lf - smoothLog) < 0.04) smoothLog = smoothLog * 0.6 + lf * 0.4;
+    else { smoothLog = lf; voicedRun = 0; }
+    voicedRun++;
+    if (cal.active) calSample(r.f);
+    if (voicedRun >= 2) showPitch(Math.pow(2, smoothLog));
+  } else {
+    voicedRun = 0;
+    if (++silentRun >= 4) { smoothLog = null; setState('idle'); } // grau, Nadel bleibt stehen
+  }
+}
+
+// ---------- Kammerton ----------
+function setA4(v) {
+  S.a4 = Math.round(Math.max(400, Math.min(480, v)) * 10) / 10;
+  $('refVal').textContent = `A = ${fmt(S.a4)} Hz`;
+  save();
+}
+$('refDown').onclick = () => setA4(S.a4 - 0.5);
+$('refUp').onclick = () => setA4(S.a4 + 0.5);
+$('refReset').onclick = () => setA4(440);
+
+// Kalibrieren: Ton spielen -> nächster Halbton (bezogen auf 440 Hz) wird exakt "sauber" gesetzt.
+const CAL_NEED = 28, CAL_SKIP = 6, CAL_TIMEOUT = 12000;
+const cal = { active: false, samples: [], timer: null };
+$('calBtn').onclick = async () => {
+  if (!micOn && !(await startMic())) return;
+  cal.active = true; cal.samples = [];
+  $('calBox').hidden = false;
+  $('calCancel').hidden = false;
+  $('calProg').hidden = false;
+  $('calProg').firstElementChild.style.width = '0';
+  $('calText').textContent = 'Spiel jetzt einen Referenzton (z. B. das A auf dem Klavier) und halte ihn.';
+  clearTimeout(cal.timer);
+  cal.timer = setTimeout(() => calEnd('Kein gleichmäßiger Ton erkannt. Versuch es noch einmal.'), CAL_TIMEOUT);
+};
+$('calCancel').onclick = () => calEnd(null);
+
+function calSample(f) {
+  const s = cal.samples;
+  // bei Sprung um mehr als einen Viertelton neu anfangen
+  if (s.length && Math.abs(1200 * Math.log2(f / s[s.length - 1])) > 50) s.length = 0;
+  s.push(f);
+  $('calProg').firstElementChild.style.width = Math.min(100, s.length / CAL_NEED * 100) + '%';
+  if (s.length < CAL_NEED) return;
+  const use = s.slice(CAL_SKIP).sort((a, b) => a - b);
+  const med = use[use.length >> 1];
+  const good = use.filter(v => Math.abs(1200 * Math.log2(v / med)) < 15);
+  const f0 = Math.exp(good.reduce((a, v) => a + Math.log(v), 0) / good.length);
+  const midi = Math.round(69 + 12 * Math.log2(f0 / 440));
+  const a4 = f0 * Math.pow(2, (69 - midi) / 12);
+  if (a4 < 400 || a4 > 480) { calEnd('Der Ton liegt außerhalb von 400–480 Hz für A. Bitte erneut versuchen.'); return; }
+  setA4(a4);
+  const name = NOTE_NAMES[((midi % 12) + 12) % 12] + (Math.floor(midi / 12) - 1);
+  calEnd(`Gemessen: ${name} mit ${fmt(f0)} Hz. Neuer Kammerton A = ${fmt(S.a4)} Hz.`);
+}
+function calEnd(msg) {
+  cal.active = false; clearTimeout(cal.timer);
+  if (!msg) { $('calBox').hidden = true; return; }
+  $('calText').textContent = msg;
+  $('calProg').hidden = true;
+  $('calCancel').hidden = true;
+  cal.timer = setTimeout(() => { $('calBox').hidden = true; }, 5000);
+}
+
+// ---------- Toleranz ----------
+$('tol').value = String(S.tol);
+if (!$('tol').value) { $('tol').value = '5'; S.tol = 5; }
+$('tol').onchange = () => { S.tol = +$('tol').value; drawTolZone(); save(); };
+
+// ---------- Metronom (ohne Betonung: alle Schläge gleich) ----------
+const metro = { on: false, next: 0, timer: null, clicks: [], shown: -1, flashUntil: 0 };
+function playClick(t) {
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  const v = Math.max(0.0001, S.vol);
+  o.type = 'sine'; o.frequency.value = 1600;
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(v, t + 0.002);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.045);
+  o.connect(g); g.connect(ctx.destination);
+  o.start(t); o.stop(t + 0.05);
+}
+function schedule() {
+  while (metro.next < ctx.currentTime + 0.12) {
+    playClick(metro.next);
+    metro.clicks.push(metro.next);
+    metro.next += 60 / S.bpm;
+  }
+  const old = ctx.currentTime - 1;
+  while (metro.clicks.length && metro.clicks[0] < old) metro.clicks.shift();
+}
+function startMetro() {
+  ensureCtx();
+  metro.on = true;
+  metro.next = ctx.currentTime + 0.08;
+  schedule();
+  metro.timer = setInterval(schedule, 25);
+  $('metroBtn').textContent = 'Stopp';
+  requestWake();
+}
+function stopMetro() {
+  metro.on = false; clearInterval(metro.timer); metro.clicks = [];
+  $('metroBtn').textContent = 'Start';
+  $('beat').classList.remove('on');
+}
+function inClickWindow() {
+  if (!metro.on || !ctx) return false;
+  const now = ctx.currentTime - (ctx.outputLatency || 0) - (ctx.baseLatency || 0);
+  for (const c of metro.clicks) if (now > c - 0.01 && now < c + 0.14) return true;
+  return false;
+}
+function beatVisual() {
+  if (!metro.on || !ctx) return;
+  const now = ctx.currentTime - (ctx.outputLatency || 0);
+  for (const c of metro.clicks) if (c <= now && c > metro.shown) { metro.shown = c; metro.flashUntil = now + 0.09; }
+  $('beat').classList.toggle('on', now < metro.flashUntil);
+}
+$('metroBtn').onclick = () => metro.on ? stopMetro() : startMetro();
+
+function setBpm(v) {
+  S.bpm = Math.round(Math.max(30, Math.min(240, v)));
+  $('bpmVal').textContent = S.bpm;
+  $('bpm').value = S.bpm;
+  save();
+}
+$('bpm').oninput = e => setBpm(+e.target.value);
+$('bpmDown').onclick = () => setBpm(S.bpm - 1);
+$('bpmUp').onclick = () => setBpm(S.bpm + 1);
+let taps = [];
+$('tapBtn').onclick = () => {
+  const t = performance.now();
+  if (taps.length && t - taps[taps.length - 1] > 2000) taps = [];
+  taps.push(t);
+  if (taps.length > 5) taps.shift();
+  if (taps.length >= 2) setBpm(60000 / ((taps[taps.length - 1] - taps[0]) / (taps.length - 1)));
+};
+$('vol').value = S.vol;
+$('vol').oninput = e => { S.vol = +e.target.value; save(); };
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' && !/INPUT|SELECT|BUTTON/.test(document.activeElement.tagName)) { e.preventDefault(); $('metroBtn').click(); }
+});
+
+// ---------- Start ----------
+$('micBtn').onclick = startMic;
+setA4(S.a4); setBpm(S.bpm); drawTolZone();
+requestAnimationFrame(animate);
+
+// Test-Hilfe: tunerTest.tone(445) speist einen künstlichen Ton statt des Mikrofons ein.
+window.tunerTest = {
+  tone(freq, type = 'sawtooth') {
+    ensureCtx();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type; o.frequency.value = freq; g.gain.value = 0.3;
+    o.connect(g); attachSource(g); o.start();
+    return o;
+  },
+  detect: detectPitch
+};
+
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+})();
+</script>
+</body>
+</html>

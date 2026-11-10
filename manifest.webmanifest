@@ -1,0 +1,14 @@
+{
+  "name": "Stimmgerät mit Metronom",
+  "short_name": "Stimmgerät",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#3a3e44",
+  "theme_color": "#3a3e44",
+  "lang": "de",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
